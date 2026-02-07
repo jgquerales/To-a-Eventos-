@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TÓNA PRO EVENTOS</title>
+<style>
+body{margin:0;font-family:system-ui;background:#0b0b0b;color:#fff}
+header{text-align:center;padding:16px;border-bottom:1px solid #222}
+header img{max-height:70px}
+button{background:#fff;color:#000;border:none;padding:10px 14px;border-radius:8px;font-weight:600}
+input,textarea{width:100%;padding:10px;margin:6px 0;border-radius:8px;border:1px solid #333;background:#111;color:#fff}
+.card{background:#151515;padding:14px;border-radius:12px;margin-bottom:12px}
+.hidden{display:none}
+.list-item{padding:12px;border-bottom:1px solid #222}
+.gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.gallery img{width:100%;border-radius:10px}
+nav{display:flex;gap:6px;margin-bottom:10px}
+nav button{flex:1}
+</style>
+</head>
+<body>
+
+<header>
+<img src="data:image/png;base64,REEMPLAZAR_BASE64_LOGO" alt="TÓNA PRO EVENTOS">
+</header>
+
+<section id="projects">
+<div class="card">
+<h3>Proyectos</h3>
+<button onclick="newProject()">➕ Nuevo proyecto</button>
+</div>
+<div id="projectList"></div>
+</section>
+
+<section id="editor" class="hidden">
+<nav>
+<button onclick="showTab('datos')">Datos</button>
+<button onclick="showTab('tareas')">Checklist</button>
+<button onclick="showTab('fotos')">Galería</button>
+</nav>
+
+<div id="datos" class="tab">
+<div class="card">
+<input id="pNombre" placeholder="Nombre del evento">
+<input id="pFecha" type="date">
+<input id="pLugar" placeholder="Lugar">
+<textarea id="pNotas" placeholder="Notas"></textarea>
+<button onclick="saveProject()">💾 Guardar cambios</button>
+</div>
+</div>
+
+<div id="tareas" class="tab hidden">
+<div class="card">
+<input id="taskInput" placeholder="Nueva tarea">
+<button onclick="addTask()">Agregar</button>
+</div>
+<ul id="taskList"></ul>
+</div>
+
+<div id="fotos" class="tab hidden">
+<div class="card">
+<input type="file" accept="image/*" multiple onchange="addPhotos(event)">
+</div>
+<div class="gallery" id="photoGallery"></div>
+</div>
+
+<button onclick="backToProjects()">⬅ Volver a proyectos</button>
+</section>
+
+<script>
+let db, currentProjectId=null;
+
+const request=indexedDB.open('tonaEventosDB',1);
+request.onupgradeneeded=e=>{
+ db=e.target.result;
+ db.createObjectStore('projects',{keyPath:'id',autoIncrement:true});
+ db.createObjectStore('photos',{keyPath:'id',autoIncrement:true});
+};
+request.onsuccess=e=>{db=e.target.result;loadProjects();};
+
+function loadProjects(){
+ const tx=db.transaction('projects','readonly').objectStore('projects').getAll();
+ tx.onsuccess=()=>{
+  const list=document.getElementById('projectList');
+  list.innerHTML='';
+  tx.result.forEach(p=>{
+    const div=document.createElement('div');
+    div.className='list-item';
+    div.innerHTML=`<strong>${p.nombre}</strong><br><small>${p.fecha||''}</small><br><button onclick=\"event.stopPropagation();deleteProject(${p.id})\">🗑 Eliminar</button>`;
+    div.onclick=()=>openProject(p.id);
+    list.appendChild(div);
+  });
+ };
+}
+
+function newProject(){
+ const tx=db.transaction('projects','readwrite').objectStore('projects');
+ tx.add({nombre:'Nuevo evento',fecha:'',lugar:'',notas:'',tareas:[]});
+ setTimeout(loadProjects,300);
+}
+
+function openProject(id){
+ currentProjectId=id;
+ document.getElementById('projects').classList.add('hidden');
+ document.getElementById('editor').classList.remove('hidden');
+ const tx=db.transaction('projects','readonly').objectStore('projects').get(id);
+ tx.onsuccess=()=>{
+  const p=tx.result;
+  pNombre.value=p.nombre;pFecha.value=p.fecha;pLugar.value=p.lugar;pNotas.value=p.notas;
+  renderTasks(p.tareas||[]);loadPhotos();
+ };
+}
+
+function saveProject(){
+ const tx=db.transaction('projects','readwrite').objectStore('projects').get(currentProjectId);
+ tx.onsuccess=()=>{
+  const p=tx.result;
+  p.nombre=pNombre.value;p.fecha=pFecha.value;p.lugar=pLugar.value;p.notas=pNotas.value;
+  db.transaction('projects','readwrite').objectStore('projects').put(p);
+  alert('Proyecto guardado');
+ };
+}
+
+function backToProjects(){
+ document.getElementById('editor').classList.add('hidden');
+ document.getElementById('projects').classList.remove('hidden');
+ loadProjects();
+}
+
+function showTab(id){document.querySelectorAll('.tab').forEach(t=>t.classList.add('hidden'));document.getElementById(id).classList.remove('hidden');}
+
+function addTask(){
+ const input=document.getElementById('taskInput');
+ if(!input.value)return;
+ const tx=db.transaction('projects','readwrite').objectStore('projects').get(currentProjectId);
+ tx.onsuccess=()=>{const p=tx.result;p.tareas.push(input.value);db.transaction('projects','readwrite').objectStore('projects').put(p);renderTasks(p.tareas);input.value='';};
+}
+
+function renderTasks(tasks){
+ const ul=document.getElementById('taskList');ul.innerHTML='';
+ tasks.forEach(t=>{const li=document.createElement('li');li.className='list-item';li.textContent=t;ul.appendChild(li);});
+}
+
+function addPhotos(e){
+ [...e.target.files].forEach(f=>{
+  const tx=db.transaction('photos','readwrite').objectStore('photos');
+  tx.add({projectId:currentProjectId,image:f});
+ });
+ setTimeout(loadPhotos,300);
+}
+
+function loadPhotos(){
+ const store=db.transaction('photos','readonly').objectStore('photos');
+ const req=store.getAll();
+ req.onsuccess=()=>{
+  const gal=document.getElementById('photoGallery');gal.innerHTML='';
+  req.result.filter(p=>p.projectId===currentProjectId).forEach(p=>{
+    const img=document.createElement('img');img.src=URL.createObjectURL(p.image);gal.appendChild(img);
+  });
+ };
+}
+function deleteProject(id){
+ if(!confirm('¿Eliminar este proyecto y todas sus fotos?'))return;
+ const tx=db.transaction(['projects','photos'],'readwrite');
+ tx.objectStore('projects').delete(id);
+ const photos=tx.objectStore('photos').getAll();
+ photos.onsuccess=()=>{
+  photos.result.filter(p=>p.projectId===id).forEach(p=>tx.objectStore('photos').delete(p.id));
+ };
+ setTimeout(loadProjects,300);
+}
+</script>
+</body>
+</html>
